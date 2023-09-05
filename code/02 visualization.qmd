@@ -136,4 +136,4 @@ This script and flow can be adapted to any situation. All you need to change is:
 - The spatial points from which to extract data  
 
 # GitHub  
-This entire script can be found on [this GitHub repository].
+This entire script can be found on [this GitHub repository](https://github.com/leombastos/2023_aghack_vwc).
