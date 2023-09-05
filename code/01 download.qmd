@@ -1,0 +1,92 @@
+---
+title: "01 download"
+format: html
+---
+
+# Introduction  
+This script was developed by Dr. Leo Bastos, and adapted from [this source]("https://nassgeo.csiss.gmu.edu/Crop-CASMA-Developer/wps/overview/").
+
+
+# Setup  
+```{r}
+library(tidyverse)
+library(curl)
+```
+
+```{r params}
+start <- as.Date("2023-06-15")
+end <- as.Date("2023-08-22")
+ndays <- as.numeric(end - start)
+stateFIPS <- 13 #Georgia
+```
+
+
+# Defining url  
+The way we make data query is through calling a **URL following a pre-defined format** that includes **our variables of interest**.    
+
+To determine which data products can be retrieved and how to specify them, check [this source](https://nassgeo.csiss.gmu.edu/Crop-CASMA-Developer/data/dataNamingConvention/).  
+
+Our goal with this tutorial is to query and download:  
+
+- Variable of interest: **SMAP** soil volumetric water content  
+- Spatial resolution: **1 KM**  
+- Temporal resolution: **Daily**  
+- Temporal extent: state of **Georgia**  
+
+![](../data/dataselection.png) 
+
+To do this in code, we need to create a URL query for each individual date.  
+
+```{r df}
+df <- data.frame(n = 1:ndays) %>%
+  # Creating individual dates 
+  mutate(date = start + n) %>%
+  # Replacing - with . to match URL requirements
+  mutate(date_dot = str_replace_all(date, "-",".")) %>%
+  # Combining our parameters with the URL specification
+  mutate(layer = paste0("SMAP-HYB-1KM-DAILY_",
+                        date_dot,
+                        "_PM")) %>%
+  mutate(fips = stateFIPS) %>%
+  # Creating the URLs matching all the required info
+  mutate(url = paste0('https://cloud.csiss.gmu.edu/smap_service?service=WPS&version=1.0.0&request=Execute&identifier=GetFileByFips&DataInputs=layer=',
+                      layer,
+                      ';fips=',
+                      fips))
+
+df
+```
+
+```{r}
+df$url[[1]]
+```
+
+# Batch download  
+The code below will  
+
+- iterate over each URL we created  
+- make an API call, and   
+- download the .tif file containing soil volumetric water content for each date, saving it in a folder called `data`  
+
+::: {.callout-warning}
+The code below will download 49 files to your system, and it will take a moment depending on your internet speed.
+:::  
+
+```{r download}
+for (i in 1:nrow(df)) { # Loop over the URLs
+  df$url[[i]] %>%
+    # Download the XML file
+    readLines(warn = FALSE) %>% 
+    # Process the XML file
+    strsplit("(<|>)") %>% 
+    unlist() %>%
+    # Find the url of the GeoTIFF file to download
+    grep("https://.*.tif", ., value = TRUE) %>%
+    # Download the file into a specified location
+    curl_download(., file.path("../data", gsub("^h.*/", "", .)))
+}
+```
+
+
+
+

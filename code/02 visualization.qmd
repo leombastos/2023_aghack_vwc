@@ -1,0 +1,139 @@
+---
+title: "02 visualization"
+format: html
+---
+
+# Setup  
+We need to load a few more packages for this objective.  
+
+- `sf` handles **vector geospatial data** (like points and polygons)  
+- `stars` handles **raster geospatial data** (like images)  
+- `USAboundaries` contains state boundaries in the form of vector data  
+
+```{r}
+library(tidyverse)
+library(sf)
+library(stars)
+library(USAboundaries)
+```
+
+# Importing rasters  
+We downloaded all the rasters on objective #1 and saved them to the folder `data`.  
+
+Now, let's read all rasters into our R session.
+```{r rastlist}
+rastlist <- list.files(path = "../data/", 
+                       pattern = '.tif$', 
+                       all.files = T, 
+                       full.names = T) 
+
+```
+
+```{r ts_df}
+ts_df <- data.frame(source=rastlist) %>%
+  separate(source, 
+           into = c("path", "meta"), 
+           sep = "//", 
+           remove = F) %>%
+  mutate(date = substr(meta, 20,29)) %>%
+  mutate(date = as.Date(date, "%Y.%m.%d")) %>%
+  dplyr::select(date, source) %>%
+  mutate(raster=map(source,
+                    ~read_stars(.x) %>%
+                      rename(vwc = 1) 
+  )) 
+
+ts_df
+```
+
+Let's inspect the fourth raster.  
+```{r}
+ts_df$raster[[4]]
+```
+
+# Point data  
+Let's assume I have measure soil organic carbon at three specific studies in Georgia.
+
+I want to extract soil volumetric water content for these three sites, for all the dates I downloaded SMAP data.  
+
+To be able to do that, I need to know the **gespatial coordinates** (longitude, latitude) of the sites.  
+
+If you don't have the coordinates but you know where the sites are, you can use Google Maps. 
+
+```{r ga_fields}
+ga_fields <- tribble(~site,~x,~y,
+                    "Watkinsville", -83.303315, 33.725157,
+                    "Midville", -82.217707, 32.869675, 
+                    "Tifton", -83.646130, 31.508821
+                    ) %>%
+  # Using the coordinates to transform from data frame to sf 
+  st_as_sf(coords = c("x","y")) %>%
+  # Assigning the native coordinate system WGS84
+  st_set_crs(value = 4326) %>%
+  # Transforming the coordinate system to match that of SMAP  
+  st_transform(crs = 5070)
+
+ga_fields
+```
+```{r}
+ga_fields$geometry[[1]]
+```
+
+# Exploratory data analysis (EDA)
+Let's plot one of the rasters along with the site locations:  
+
+```{r}
+ggplot()+
+  geom_stars(data = ts_df$raster[[4]] 
+               )+
+  scale_fill_viridis_c()+
+  geom_sf(data = ga_fields)
+```
+Looks nice!
+
+Now, I want to be able to extract the soil volumetric water content at each site for all the dates I have image for.  
+
+# Extracting VWC for the points across all dates  
+```{r}
+vwc_ts <- ts_df %>%
+  group_by(date) %>%
+  # For each date, extract the pixel value for each site
+  mutate(vwc = map(raster,
+                   ~st_extract(.x, ga_fields) %>%
+                     mutate(site = ga_fields$site)
+                   )) %>%
+  unnest(vwc) %>%
+  # Removing NAs from missing dates
+  drop_na(vwc) %>%
+  # Selecting only desired columns  
+  dplyr::select(date, site, vwc) %>%
+  # Arranging by site
+  arrange(site)
+
+vwc_ts
+
+```
+
+Notice how we don't have data for all dates, likely due to data collection issues.  
+
+Lastly, let's plot a timeseries of soil volumetric water content over time for each site.  
+
+```{r}
+ggplot(data = vwc_ts,
+       aes(x = date, y = vwc, color = site))+
+  geom_point()+
+  geom_line()
+```
+
+# Summary  
+This script downloaded, processed, and visualized soil volumetric water content for 3 sites in Georgia from June to August 2023.  
+
+This script and flow can be adapted to any situation. All you need to change is:  
+
+- The SMAP product specification (if desires a different project)  
+- The dates  
+- The spatial extent (e.g., other states, entire USA)  
+- The spatial points from which to extract data  
+
+# GitHub  
+This entire script can be found on [this GitHub repository].
